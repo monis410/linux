@@ -39,6 +39,7 @@
 #include <linux/init.h>
 #include <linux/mutex.h>
 #include <rdma/rdma_netlink.h>
+#include <rdma/ib_addr.h>
 
 #include "core_priv.h"
 
@@ -759,6 +760,8 @@ static int __init ib_core_init(void)
 		goto err_nl;
 	}
 
+	roce_gid_cache_setup();
+
 	return 0;
 
 err_nl:
@@ -774,6 +777,7 @@ err:
 
 static void __exit ib_core_cleanup(void)
 {
+	roce_gid_cache_cleanup();
 	ib_cache_cleanup();
 	ibnl_cleanup();
 	ib_sysfs_cleanup();

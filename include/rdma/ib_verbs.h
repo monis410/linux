@@ -64,6 +64,37 @@ union ib_gid {
 	} global;
 };
 
+extern union ib_gid zgid;
+
+enum ib_gid_type {
+	IB_GID_TYPE_IB        = 0, /* If link layer is Ethernet, this is RoCE V1 */
+	IB_GID_TYPE_ROCE_V2   = 1,
+};
+
+#define MAX_GID_TYPE 2
+
+struct ib_gid_attr {
+	enum ib_gid_type	gid_type;
+	struct net_device	*ndev;
+	void			*context;
+};
+
+struct ib_roce_gid_cache_entry {
+	/* seq number of 0 indicates entry being changed. */
+	unsigned int        seq;
+	union ib_gid        gid;
+	struct ib_gid_attr  attr;
+	void		   *context;
+};
+
+struct ib_roce_gid_cache {
+	int		     active;
+	int                  sz;
+	/* locking against multiple writes in data_vec */
+	struct mutex         lock;
+	struct ib_roce_gid_cache_entry *data_vec;
+};
+
 enum rdma_node_type {
 	/* IB values map to NodeInfo:NodeType. */
 	RDMA_NODE_IB_CA 	= 1,
@@ -265,7 +296,9 @@ enum ib_port_cap_flags {
 	IB_PORT_BOOT_MGMT_SUP			= 1 << 23,
 	IB_PORT_LINK_LATENCY_SUP		= 1 << 24,
 	IB_PORT_CLIENT_REG_SUP			= 1 << 25,
-	IB_PORT_IP_BASED_GIDS			= 1 << 26
+	IB_PORT_IP_BASED_GIDS			= 1 << 26,
+	IB_PORT_ROCE				= 1 << 27,
+	IB_PORT_ROCE_V2				= 1 << 28,
 };
 
 enum ib_port_width {
@@ -1431,6 +1464,7 @@ struct ib_cache {
 	struct ib_pkey_cache  **pkey_cache;
 	struct ib_gid_cache   **gid_cache;
 	u8                     *lmc_cache;
+	struct ib_roce_gid_cache **roce_gid_cache;
 };
 
 struct ib_dma_mapping_ops {
@@ -1506,6 +1540,21 @@ struct ib_device {
 	int		           (*query_gid)(struct ib_device *device,
 						u8 port_num, int index,
 						union ib_gid *gid);
+	/* When calling modify_gid, the HW vendor's driver should
+	 * modify the gid of device @device at gid index @index of
+	 * port @port to be @gid. Meta-info of that gid (for example,
+	 * the network device realted to this gid is availible
+	 * at @attr. @context is an input-output variable that could
+	 * be used by the HW vendor's driver and is nullified when the GID
+	 * entry is deleted. GID deletion is done by passing the zero gid.
+	 * Params are consistent until the next call of modify_gid.
+	 * The function should return 0 on successb or error otherwise.
+	 */
+	int		           (*modify_gid)(struct ib_device *device,
+						 u8 port_num, unsigned int index,
+						 const union ib_gid *gid,
+						 const struct ib_gid_attr *attr,
+						 void **context);
 	int		           (*query_pkey)(struct ib_device *device,
 						 u8 port_num, u16 index, u16 *pkey);
 	int		           (*modify_device)(struct ib_device *device,
