@@ -420,6 +420,8 @@ rollback_cache_setup:
 
 	kfree(ib_dev->cache.roce_gid_cache);
 	ib_dev->cache.roce_gid_cache = NULL;
+
+	return err;
 }
 
 static void roce_gid_cache_cleanup_one(struct ib_device *ib_dev)
@@ -451,4 +453,49 @@ int roce_gid_cache_is_active(struct ib_device *ib_dev, u8 port)
 {
 	return ib_dev->cache.roce_gid_cache &&
 		ib_dev->cache.roce_gid_cache[port - 1]->active;
+}
+
+static void roce_gid_cache_client_setup_one(struct ib_device *ib_dev)
+{
+	if (!roce_gid_cache_setup_one(ib_dev)) {
+		struct work_struct *work = kzalloc(sizeof(*work), GFP_KERNEL);
+
+		if (!work) {
+			roce_gid_cache_cleanup_one(ib_dev);
+			return;
+		}
+		roce_gid_cache_set_active_state(ib_dev, 1);
+		INIT_WORK(work, roce_rescan_devices);
+		schedule_work(work);
+	}
+}
+
+static void roce_gid_cache_client_cleanup_one(struct ib_device *ib_dev)
+{
+	roce_gid_cache_set_active_state(ib_dev, 0);
+	/* Make sure no gid update task is still referencing this device */
+	flush_workqueue(roce_gid_mgmt_wq);
+	flush_workqueue(system_wq);
+
+	roce_gid_cache_cleanup_one(ib_dev);
+}
+
+static struct ib_client cache_client = {
+	.name   = "roce_gid_cache",
+	.add    = roce_gid_cache_client_setup_one,
+	.remove = roce_gid_cache_client_cleanup_one
+};
+
+int __init roce_gid_cache_setup(void)
+{
+	roce_gid_mgmt_init();
+
+	return ib_register_client(&cache_client);
+}
+
+void __exit roce_gid_cache_cleanup(void)
+{
+	ib_unregister_client(&cache_client);
+
+	roce_gid_mgmt_cleanup();
 }

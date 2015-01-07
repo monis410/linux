@@ -600,6 +600,38 @@ int ib_query_gid(struct ib_device *device,
 EXPORT_SYMBOL(ib_query_gid);
 
 /**
+ * ib_enum_roce_ports_of_netdev - enumerate RoCE ports of a netdv
+ * @ndev:Netdev to scan for RoCE subdevices of
+ * @filter: Should we call the callback?
+ * @cb:Callback to call for each found RoCE ports
+ * @cookie:Cookie passed back to the callback
+ *
+ * Enumerates all of the physical RoCE ports which are relaying
+ * Ethernet packets to a specific (possibly virtual) netdevice.
+ */
+void ib_enum_roce_ports_of_netdev(struct net_device *ndev,
+				  roce_netdev_filter filter,
+				  roce_netdev_callback cb,
+				  void *cookie)
+{
+	struct ib_device *dev;
+	u8 port;
+
+	mutex_lock(&device_mutex);
+
+	list_for_each_entry(dev, &device_list, core_list)
+		if (dev->modify_gid)
+			for (port = start_port(dev); port <= end_port(dev);
+			     port++)
+				if (dev->get_link_layer(dev, port) ==
+				    IB_LINK_LAYER_ETHERNET)
+					if (filter(dev, port, ndev))
+						cb(dev, port, ndev, cookie);
+
+	mutex_unlock(&device_mutex);
+}
+
+/**
  * ib_query_pkey - Get P_Key table entry
  * @device:Device to query
  * @port_num:Port number to query
