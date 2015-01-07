@@ -589,12 +589,20 @@ EXPORT_SYMBOL(ib_query_port);
  * @port_num:Port number to query
  * @index:GID table index to query
  * @gid:Returned GID
+ * @attr: Returned GID's attribute (only in RoCE)
  *
  * ib_query_gid() fetches the specified GID table entry.
  */
 int ib_query_gid(struct ib_device *device,
-		 u8 port_num, int index, union ib_gid *gid)
+		 u8 port_num, int index, union ib_gid *gid, struct ib_gid_attr *attr)
 {
+	if (device->cache.roce_gid_cache &&
+	    rdma_port_get_link_layer(device, port_num) == IB_LINK_LAYER_ETHERNET)
+		return roce_gid_cache_get_gid(device, port_num, index, gid, attr);
+
+	if (attr)
+		return -EINVAL;
+
 	return device->query_gid(device, port_num, index, gid);
 }
 EXPORT_SYMBOL(ib_query_gid);
@@ -703,15 +711,19 @@ EXPORT_SYMBOL(ib_modify_port);
  * @index: The index into the GID table where the GID was found.  This
  *   parameter may be NULL.
  */
-int ib_find_gid(struct ib_device *device, union ib_gid *gid,
+int ib_find_gid(struct ib_device *device, union ib_gid *gid, struct ib_gid_attr *attr,
 		u8 *port_num, u16 *index)
 {
 	union ib_gid tmp_gid;
 	int ret, port, i;
 
+	if (device->cache.roce_gid_cache &&
+	    !roce_gid_cache_find_gid(device, gid, IB_GID_TYPE_IB, port_num, index))
+		return 0;
+
 	for (port = start_port(device); port <= end_port(device); ++port) {
 		for (i = 0; i < device->gid_tbl_len[port - start_port(device)]; ++i) {
-			ret = ib_query_gid(device, port, i, &tmp_gid);
+			ret = ib_query_gid(device, port, i, &tmp_gid, NULL);
 			if (ret)
 				return ret;
 			if (!memcmp(&tmp_gid, gid, sizeof *gid)) {

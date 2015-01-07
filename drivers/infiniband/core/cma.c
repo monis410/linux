@@ -378,9 +378,9 @@ static int cma_acquire_dev(struct rdma_id_private *id_priv,
 		if (rdma_node_get_transport(cma_dev->device->node_type) == RDMA_TRANSPORT_IB &&
 		    rdma_port_get_link_layer(cma_dev->device, port) == IB_LINK_LAYER_ETHERNET)
 			ret = ib_find_cached_gid(cma_dev->device, &iboe_gid,
-						 &found_port, NULL);
+						 IB_GID_TYPE_IB, &found_port, NULL);
 		else
-			ret = ib_find_cached_gid(cma_dev->device, &gid,
+			ret = ib_find_cached_gid(cma_dev->device, &gid, IB_GID_TYPE_IB,
 						 &found_port, NULL);
 
 		if (!ret && (port  == found_port)) {
@@ -397,9 +397,14 @@ static int cma_acquire_dev(struct rdma_id_private *id_priv,
 			if (rdma_port_get_link_layer(cma_dev->device, port) == dev_ll) {
 				if (rdma_node_get_transport(cma_dev->device->node_type) == RDMA_TRANSPORT_IB &&
 				    rdma_port_get_link_layer(cma_dev->device, port) == IB_LINK_LAYER_ETHERNET)
-					ret = ib_find_cached_gid(cma_dev->device, &iboe_gid, &found_port, NULL);
+					ret = ib_find_cached_gid(cma_dev->device,
+								 &iboe_gid,
+								 IB_GID_TYPE_IB,
+								 &found_port, NULL);
 				else
-					ret = ib_find_cached_gid(cma_dev->device, &gid, &found_port, NULL);
+					ret = ib_find_cached_gid(cma_dev->device, &gid,
+								 IB_GID_TYPE_IB,
+								 &found_port, NULL);
 
 				if (!ret && (port == found_port)) {
 					id_priv->id.port_num = found_port;
@@ -442,7 +447,8 @@ static int cma_resolve_ib_dev(struct rdma_id_private *id_priv)
 			if (ib_find_cached_pkey(cur_dev->device, p, pkey, &index))
 				continue;
 
-			for (i = 0; !ib_get_cached_gid(cur_dev->device, p, i, &gid); i++) {
+			for (i = 0; !ib_get_cached_gid(cur_dev->device, p, i, &gid, NULL);
+			     i++) {
 				if (!memcmp(&gid, dgid, sizeof(gid))) {
 					cma_dev = cur_dev;
 					sgid = gid;
@@ -629,7 +635,7 @@ static int cma_modify_qp_rtr(struct rdma_id_private *id_priv,
 		goto out;
 
 	ret = ib_query_gid(id_priv->id.device, id_priv->id.port_num,
-			   qp_attr.ah_attr.grh.sgid_index, &sgid);
+			   qp_attr.ah_attr.grh.sgid_index, &sgid, NULL);
 	if (ret)
 		goto out;
 
@@ -2051,7 +2057,7 @@ static int cma_bind_loopback(struct rdma_id_private *id_priv)
 	p = 1;
 
 port_found:
-	ret = ib_get_cached_gid(cma_dev->device, p, 0, &gid);
+	ret = ib_get_cached_gid(cma_dev->device, p, 0, &gid, NULL);
 	if (ret)
 		goto out;
 

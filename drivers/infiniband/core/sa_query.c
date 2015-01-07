@@ -546,8 +546,8 @@ int ib_init_ah_from_path(struct ib_device *device, u8 port_num,
 		ah_attr->ah_flags = IB_AH_GRH;
 		ah_attr->grh.dgid = rec->dgid;
 
-		ret = ib_find_cached_gid(device, &rec->sgid, &port_num,
-					 &gid_index);
+		ret = ib_find_cached_gid(device, &rec->sgid, IB_GID_TYPE_IB,
+					 &port_num, &gid_index);
 		if (ret)
 			return ret;
 
