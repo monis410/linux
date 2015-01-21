@@ -87,24 +87,37 @@ static const struct {
 #define CAP_TO_GID_TABLE_SIZE \
 	(sizeof(PORT_CAP_TO_GID_TYPE) / sizeof(PORT_CAP_TO_GID_TYPE[0]))
 
-static void update_gid(enum gid_op_type gid_op, struct ib_device *ib_dev,
-		       u8 port, union ib_gid *gid,
-		       struct ib_gid_attr *gid_attr)
+static unsigned long gid_type_mask_support(struct ib_device *ib_dev, u8 port)
 {
 	struct ib_port_attr pattr;
 	int i;
 	int err;
+	unsigned int ret_flags = 0;
 
 	err = ib_query_port(ib_dev, port, &pattr);
 	if (err) {
 		pr_warn("update_gid: ib_query_port() failed for %s, %d\n",
 			ib_dev->name, err);
+		return 0;
 	}
 
-	for (i = 0; i < CAP_TO_GID_TABLE_SIZE; i++) {
-		if (pattr.port_cap_flags & PORT_CAP_TO_GID_TYPE[i].flag_mask) {
-			gid_attr->gid_type =
-				PORT_CAP_TO_GID_TYPE[i].gid_type;
+	for (i = 0; i < CAP_TO_GID_TABLE_SIZE; i++)
+		if (pattr.port_cap_flags & PORT_CAP_TO_GID_TYPE[i].flag_mask)
+			ret_flags |= 1UL << PORT_CAP_TO_GID_TYPE[i].gid_type;
+
+	return ret_flags;
+}
+
+static void update_gid(enum gid_op_type gid_op, struct ib_device *ib_dev,
+		       u8 port, union ib_gid *gid,
+		       struct ib_gid_attr *gid_attr)
+{
+	int i;
+	unsigned long gid_type_mask = gid_type_mask_support(ib_dev, port);
+
+	for (i = 0; i < IB_GID_TYPE_SIZE; i++) {
+		if ((1UL << i) & gid_type_mask) {
+			gid_attr->gid_type = i;
 			switch (gid_op) {
 			case GID_ADD:
 				roce_add_gid(ib_dev, port,
@@ -174,6 +187,19 @@ static void update_gid_ip(enum gid_op_type gid_op,
 	memset(&gid_attr, 0, sizeof(gid_attr));
 
 	update_gid(gid_op, ib_dev, port, &gid, &gid_attr);
+}
+
+static void enum_netdev_default_gids(struct ib_device *ib_dev,
+				     u8 port, struct net_device *ndev)
+{
+	unsigned long gid_type_mask;
+
+	if (ib_dev->get_netdev(ib_dev, port) != ndev)
+		return;
+
+	gid_type_mask = gid_type_mask_support(ib_dev, port);
+
+	roce_gid_cache_set_default_gid(ib_dev, port, ndev, gid_type_mask);
 }
 
 static void enum_netdev_ipv4_ips(struct ib_device *ib_dev,
@@ -274,6 +300,7 @@ static void enum_netdev_ipv6_ips(struct ib_device *ib_dev,
 static void add_netdev_ips(struct ib_device *ib_dev, u8 port,
 			   struct net_device *ndev, void *cookie)
 {
+	enum_netdev_default_gids(ib_dev, port, ndev);
 	enum_netdev_ipv4_ips(ib_dev, port, ndev);
 #if IS_ENABLED(CONFIG_IPV6)
 	enum_netdev_ipv6_ips(ib_dev, port, ndev);

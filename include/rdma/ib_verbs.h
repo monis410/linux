@@ -69,6 +69,7 @@ extern union ib_gid zgid;
 enum ib_gid_type {
 	IB_GID_TYPE_IB        = 0, /* If link layer is Ethernet, this is RoCE V1 */
 	IB_GID_TYPE_ROCE_V2   = 1,
+	IB_GID_TYPE_SIZE
 };
 
 #define MAX_GID_TYPE 2

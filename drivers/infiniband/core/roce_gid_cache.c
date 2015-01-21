@@ -34,6 +34,7 @@
 #include <linux/netdevice.h>
 #include <linux/rtnetlink.h>
 #include <rdma/ib_cache.h>
+#include <net/addrconf.h>
 
 #include "core_priv.h"
 
@@ -66,10 +67,10 @@ static void put_ndev(struct rcu_head *rcu)
 	kfree(put_rcu);
 }
 
-static void write_gid(struct ib_device *ib_dev, u8 port,
-		      struct ib_roce_gid_cache *cache, int ix,
-		      const union ib_gid *gid,
-		      const struct ib_gid_attr *attr)
+static int write_gid(struct ib_device *ib_dev, u8 port,
+		     struct ib_roce_gid_cache *cache, int ix,
+		     const union ib_gid *gid,
+		     const struct ib_gid_attr *attr)
 {
 	unsigned int orig_seq;
 	int ret;
@@ -128,6 +129,7 @@ static void write_gid(struct ib_device *ib_dev, u8 port,
 
 		ib_dispatch_event(&event);
 	}
+	return ret;
 }
 
 int find_gid(struct ib_roce_gid_cache *cache, union ib_gid *gid,
@@ -175,6 +177,12 @@ int find_gid(struct ib_roce_gid_cache *cache, union ib_gid *gid,
 	return -1;
 }
 
+static void make_default_gid(struct  net_device *dev, union ib_gid *gid)
+{
+	gid->global.subnet_prefix = cpu_to_be64(0xfe80000000000000LL);
+	addrconf_ifid_eui48(&gid->raw[8], dev);
+}
+
 int roce_add_gid(struct ib_device *ib_dev, u8 port,
 		 union ib_gid *gid, struct ib_gid_attr *attr)
 {
@@ -213,6 +221,7 @@ int roce_del_gid(struct ib_device *ib_dev, u8 port,
 		 union ib_gid *gid, struct ib_gid_attr *attr)
 {
 	struct ib_roce_gid_cache *cache;
+	union ib_gid default_gid;
 	int ix;
 
 	if (!ib_dev->cache.roce_gid_cache)
@@ -222,6 +231,13 @@ int roce_del_gid(struct ib_device *ib_dev, u8 port,
 
 	if (!cache->active)
 		return -ENOSYS;
+
+	if (attr->ndev) {
+		/* Deleting default GIDs in not permitted */
+		make_default_gid(attr->ndev, &default_gid);
+		if (!memcmp(gid, &default_gid, sizeof(*gid)))
+			return -EPERM;
+	}
 
 	mutex_lock(&cache->lock);
 
@@ -384,6 +400,41 @@ static void set_roce_gid_cache_active(struct ib_roce_gid_cache *cache, int activ
 		return;
 
 	cache->active = active;
+}
+
+void roce_gid_cache_set_default_gid(struct ib_device *ib_dev, u8 port,
+				    struct net_device *ndev,
+				    unsigned long gid_type_mask)
+{
+	union ib_gid gid;
+	struct ib_gid_attr gid_attr;
+	struct ib_roce_gid_cache *cache;
+	unsigned int i;
+	unsigned int success;
+
+	cache  = ib_dev->cache.roce_gid_cache[port - 1];
+
+	if (!cache)
+		return;
+
+	make_default_gid(ndev, &gid);
+	memset(&gid_attr, 0, sizeof(gid_attr));
+	gid_attr.ndev = ndev;
+	for (i = 0, success = 0; i < IB_GID_TYPE_SIZE; i++) {
+		if (1UL << i & ~gid_type_mask)
+			continue;
+		gid_attr.gid_type = i;
+		if (write_gid(ib_dev, port, cache, success, &zgid, &zattr)) {
+			pr_warn("roce_gid_cache: can't delete index %d for default gid %pI6\n",
+				success, gid.raw);
+			continue;
+		}
+		if (write_gid(ib_dev, port, cache, success, &gid, &gid_attr))
+			pr_warn("roce_gid_cache: unable to add default gid %pI6\n",
+				gid.raw);
+		else
+			success++;
+	}
 }
 
 static int roce_gid_cache_setup_one(struct ib_device *ib_dev)

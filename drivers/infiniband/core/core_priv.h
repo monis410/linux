@@ -73,6 +73,10 @@ int roce_gid_cache_find_gid(struct ib_device *ib_dev, union ib_gid *gid,
 
 int roce_gid_cache_is_active(struct ib_device *ib_dev, u8 port);
 
+void roce_gid_cache_set_default_gid(struct ib_device *ib_dev, u8 port,
+				    struct net_device *ndev,
+				    unsigned long gid_type_mask);
+
 int roce_gid_cache_setup(void);
 void roce_gid_cache_cleanup(void);
 
